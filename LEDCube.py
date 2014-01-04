@@ -19,11 +19,11 @@ serverHome = "/home/pi/Projects/LEDCube" # Path to installation
 
 ## Globals
 matrix = 0x0000000000000000
-animation = "beamdown"
 status = "stopped"
 starting = True
 modes = ["beamdown", "bounce", "crazy", "helix", "innerouter",\
-         "raindrops", "spin", "twinkle", "sequence", "random"]
+         "raindrops", "spin", "twinkle", "_sequence", "_random"]
+animation = modes[0]
 
 ## Attempt to open connection to cube
 try:
@@ -32,68 +32,128 @@ try:
 except:
     print("Error opening serial port, quitting.")
     quit()
+    
+## Animation functions.  These should perform a single frame of animation
+## and then return.  They must be named the same as the strings in modes[].
+def beamdown():
+    ## Light each plane in order, faster and faster until we fill the cube
+    global starting
+    if not hasattr(beamdown, "plane"):
+        beamdown.plane = 0xffff
+    if not hasattr(beamdown, "sleeptime"):
+        beamdown.sleeptime = 1
+    if not hasattr(beamdown, "done"):
+        beamdown.done = False
+    if starting:
+        beamdown.plane = 0xffff
+        beamdown.sleeptime = 1
+        starting = False
+        beamdown.done = False
+    if beamdown.plane < 0x10000000000000000 and not beamdown.done:
+        arduino.write(struct.pack("Q", beamdown.plane))
+        if beamdown.sleeptime > 0.016:
+            time.sleep(beamdown.sleeptime)
+            beamdown.plane = beamdown.plane * 0x10000
+        else:
+            arduino.write(struct.pack("<Q", 0xffffffffffffffff))
+            beamdown.done = True
+    elif not beamdown.done:
+        beamdown.plane = 0xffff
+        beamdown.sleeptime = beamdown.sleeptime / 2.0
+    else:
+        time.sleep(0.001)
 
+def bounce():
+    pass
+        
+def crazy():
+    ## Just randomly set the states of LEDs
+    arduino.write(struct.pack("<Q", random.randint(0, 0xffffffffffffffff)))
+    time.sleep(0.5)
+    
+def helix():
+    ## Rotating double helix
+    global starting
+    global matrix
+    if not hasattr(helix, "i"):
+        helix.i = 0
+    if not hasattr(helix, "mask"):
+        helix.mask = [0x8001, 0x810, 0x180, 0x1008, 0x2004, 0x4002]
+    if starting:
+        helix.i = 0
+        starting = False
+    arduino.write(struct.pack("<Q", matrix))
+    matrix = matrix >> 16
+    matrix |= (helix.mask[helix.i] << 48)
+    helix.i += 1
+    if helix.i > 5:
+        helix.i = 0
+    time.sleep(0.125)
+    
+def innerouter():
+    ## Alternate inner and outer cube wireframe
+    arduino.write(struct.pack("<Q", 0x66006600000))
+    time.sleep(1)
+    arduino.write(struct.pack("<Q", 0xf99f90099009f99f))
+    time.sleep(1)
+    
+def raindrops():
+    ## Raindrops trickle from the top layer down
+    global matrix
+    drops = random.randint(0, 2)
+    for x in range(0, drops):
+        matrix += 1 << random.randint(0, 15)
+    arduino.write(struct.pack("<Q", matrix))
+    matrix *= 0x10000
+    matrix &= 0xffffffffffffffff
+    time.sleep(0.15)
+    
+def spin():
+    pass
+    
+def twinkle():
+    ## Twinkle on and off randomly, switching when cube is full / empty
+    global starting
+    global matrix
+    if not hasattr(twinkle, "toggle"):
+        twinkle.toggle = True
+    if starting:
+        twinkle.toggle = True
+        starting = False
+    if twinkle.toggle:
+        if matrix < 0xffffffffffffffff:
+            twink = 1 << random.randint(0, 63)
+            if not twink & matrix:
+                matrix |= twink
+                arduino.write(struct.pack("<Q", matrix))
+                time.sleep(0.15)
+        else:
+            twinkle.toggle = False
+            time.sleep(0.5)
+    else:
+        if matrix > 0:
+            twink = 1 << random.randint(0, 63)
+            if matrix & twink:
+                matrix &= matrix ^ twink
+                arduino.write(struct.pack("Q", matrix))
+                time.sleep(0.15)
+        else:
+            twinkle.toggle = True                    
+            time.sleep(0.5)
+            
+def _sequence():
+    pass
+    
+def _random():
+    pass
+                
 ## Cube control thread, this handles interfacing with the cube
 ## It is controlled by the status, starting, animation, and matrix globals
-## If status is running, it will draw a frame of animation and yield
+## If status is running, it will call the named animation and yield
 def cube():
-    global matrix
-    global starting
-    mask = [0x8001, 0x810, 0x180, 0x1008, 0x2004, 0x4002]
-    i = 0
     while True:
         if status == "running":
-            ## Light each plane in order, faster and faster until we fill the cube
-            if animation == "beamdown":
-                if starting:
-                    plane = 0xffff
-                    sleeptime = 1
-                    starting = False
-                    done = False
-                if plane < 0x10000000000000000 and not done:
-                    arduino.write(struct.pack("Q", plane))
-                    if sleeptime > 0.016:
-                        time.sleep(sleeptime)
-                        plane = plane * 0x10000
-                    else:
-                        arduino.write(struct.pack("<Q", 0xffffffffffffffff))
-                        done = True
-                elif not done:
-                    plane = 0xffff
-                    sleeptime = sleeptime / 2.0
-                else:
-                    time.sleep(0.001)
-            ## Just randomly set the states of LEDs
-            elif animation == "crazy":
-                arduino.write(struct.pack("<Q", random.randint(0, 0xffffffffffffffff)))
-                time.sleep(0.5)
-            ## Raindrops trickle from the top layer down
-            elif animation == "raindrops":
-                drops = random.randint(0, 2)
-                for x in range(0, drops):
-                    matrix += 1 << random.randint(0, 15)
-                arduino.write(struct.pack("<Q", matrix))
-                matrix *= 0x10000
-                matrix &= 0xffffffffffffffff
-                time.sleep(0.15)
-            ## Rotating double helix
-            elif animation == "helix":
-                if starting:
-                    i = 0
-                    starting = False
-                arduino.write(struct.pack("<Q", matrix))
-                matrix = matrix >> 16
-                matrix |= (mask[i] << 48)
-                i += 1
-                if i > 5:
-                    i = 0
-                time.sleep(0.125)
-            ## Alternate inner and outer cube wireframe
-            elif animation == "innerouter":
-                arduino.write(struct.pack("<Q", 0x66006600000))
-                time.sleep(1)
-                arduino.write(struct.pack("<Q", 0xf99f90099009f99f))
-                time.sleep(1)
+            globals()[animation]()  # Call the function named in animation
         else:
             time.sleep(0.001)
     
