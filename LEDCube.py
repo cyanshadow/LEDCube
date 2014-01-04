@@ -11,17 +11,17 @@ from bottle import route, get, post, request, run, redirect, static_file
 ## Configuration:  set these to match your setup
 interface  = "0.0.0.0"       # Interface to listen on, 0.0.0.0 is all interfaces
 port       = 8080            # Port to listen on
-serialPort = "/dev/ttyUSB0"  # Serial port where LED cube is connected
+serialPort = "COM8"          # Serial port where LED cube is connected
 baud       = 9600            # Baud rate of cube, 9600 is default
-timeout    = 30              # How long to run animations in sequence
-serverHome = "/home/pi/Projects/LEDCube" # Path to installation
+timeout    = 15              # How long, in seconds, to run animations in sequences
+serverHome = "/path/to/dir/with/LEDCube.py" # Path to installation
 ## End config
 
 ## Globals
 matrix = 0x0000000000000000
 status = "stopped"
 starting = True
-modes = ["beamdown", "bounce", "crazy", "helix", "innerouter",\
+modes = ["beamdown", "blink", "bounce", "crazy", "helix", "innerouter",\
          "raindrops", "spin", "twinkle", "_sequence", "_random"]
 animation = modes[0]
 
@@ -35,6 +35,13 @@ except:
     
 ## Animation functions.  These should perform a single frame of animation
 ## and then return.  They must be named the same as the strings in modes[].
+## Recommended that a frame be no longer than 1 second, which feels like
+## a reasonable delay with a web-based UI
+## Animations with names starting with _ are special.  They are playlists,
+## which will run other animations.  Provided are _sequence and _random, which
+## play other animations in sequence, or randomly, respectively.  They will skip
+## any animation whose name also starts with _, and any new playlists should
+## implement this behavior.  By convention, place playlists at the end of the list.
 def beamdown():
     ## Light each plane in order, faster and faster until we fill the cube
     global starting
@@ -62,6 +69,17 @@ def beamdown():
         beamdown.sleeptime = beamdown.sleeptime / 2.0
     else:
         time.sleep(0.001)
+        
+def blink():
+    if not hasattr(blink, "toggle"):
+        blink.toggle = True
+    if blink.toggle:
+        arduino.write(struct.pack("<Q", 0xffffffffffffffff))
+        blink.toggle = False
+    else:
+        arduino.write(struct.pack("<Q", 0x0000000000000000))
+        blink.toggle = True
+    time.sleep(1)
 
 def bounce():
     pass
@@ -69,7 +87,7 @@ def bounce():
 def crazy():
     ## Just randomly set the states of LEDs
     arduino.write(struct.pack("<Q", random.randint(0, 0xffffffffffffffff)))
-    time.sleep(0.5)
+    time.sleep(0.35)
     
 def helix():
     ## Rotating double helix
@@ -92,9 +110,14 @@ def helix():
     
 def innerouter():
     ## Alternate inner and outer cube wireframe
-    arduino.write(struct.pack("<Q", 0x66006600000))
-    time.sleep(1)
-    arduino.write(struct.pack("<Q", 0xf99f90099009f99f))
+    if not hasattr(innerouter, "toggle"):
+        innerouter.toggle = True
+    if innerouter.toggle:
+        arduino.write(struct.pack("<Q", 0x0000066006600000))
+        innerouter.toggle = False
+    else:
+        arduino.write(struct.pack("<Q", 0xf99f90099009f99f))
+        innerouter.toggle = True
     time.sleep(1)
     
 def raindrops():
@@ -142,10 +165,38 @@ def twinkle():
             time.sleep(0.5)
             
 def _sequence():
-    pass
+    global starting
+    if not hasattr(_sequence, "_time"):
+        _sequence._time = time.clock()
+    if not hasattr(_sequence, "i"):
+        _sequence.i = 0
+    if _sequence._time + timeout > time.clock():
+        if modes[_sequence.i][0] == '_':
+            _sequence.i = _sequence.i + 1
+            if _sequence.i >= len(modes):
+                _sequence.i = 0
+        else:
+            globals()[modes[_sequence.i]]()
+    else:
+        _sequence._time = time.clock()
+        _sequence.i = _sequence.i + 1
+        starting = True
+        if _sequence.i >= len(modes):
+            _sequence.i = 0
     
 def _random():
-    pass
+    if not hasattr(_random, "_time"):
+        _random._time = time.clock()
+    if not hasattr(_random, "i"):
+        _random.i = random.randint(0, len(modes))
+    if _random._time + timeout > time.clock():
+        if modes[_random.i][0] == '_':
+            _random.i = random.randint(0, len(modes))
+        else:
+            globals()[modes[_random.i]]()
+    else:
+        _random._time = time.clock()
+        _random.i = random.randint(0, len(modes))
                 
 ## Cube control thread, this handles interfacing with the cube
 ## It is controlled by the status, starting, animation, and matrix globals
