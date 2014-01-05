@@ -11,7 +11,7 @@ from bottle import route, get, post, request, run, redirect, static_file
 ## Configuration:  set these to match your setup
 interface  = "0.0.0.0"       # Interface to listen on, 0.0.0.0 is all interfaces
 port       = 8080            # Port to listen on
-serialPort = "COM8"          # Serial port where LED cube is connected
+serialPort = "COM/dev/tty"   # Serial port where LED cube is connected
 baud       = 9600            # Baud rate of cube, 9600 is default
 timeout    = 15              # How long, in seconds, to run animations in sequences
 serverHome = "/path/to/dir/with/LEDCube.py" # Path to installation
@@ -167,10 +167,10 @@ def twinkle():
 def _sequence():
     global starting
     if not hasattr(_sequence, "_time"):
-        _sequence._time = time.clock()
+        _sequence._time = time.time()
     if not hasattr(_sequence, "i"):
         _sequence.i = 0
-    if _sequence._time + timeout > time.clock():
+    if _sequence._time + timeout > time.time():
         if modes[_sequence.i][0] == '_':
             _sequence.i = _sequence.i + 1
             if _sequence.i >= len(modes):
@@ -178,7 +178,7 @@ def _sequence():
         else:
             globals()[modes[_sequence.i]]()
     else:
-        _sequence._time = time.clock()
+        _sequence._time = time.time()
         _sequence.i = _sequence.i + 1
         starting = True
         if _sequence.i >= len(modes):
@@ -186,17 +186,17 @@ def _sequence():
     
 def _random():
     if not hasattr(_random, "_time"):
-        _random._time = time.clock()
+        _random._time = time.time()
     if not hasattr(_random, "i"):
-        _random.i = random.randint(0, len(modes))
-    if _random._time + timeout > time.clock():
+        _random.i = random.randint(0, len(modes) - 1)
+    if _random._time + timeout > time.time():
         if modes[_random.i][0] == '_':
-            _random.i = random.randint(0, len(modes))
+            _random.i = random.randint(0, len(modes) - 1)
         else:
             globals()[modes[_random.i]]()
     else:
-        _random._time = time.clock()
-        _random.i = random.randint(0, len(modes))
+        _random._time = time.time()
+        _random.i = random.randint(0, len(modes) - 1)
                 
 ## Cube control thread, this handles interfacing with the cube
 ## It is controlled by the status, starting, animation, and matrix globals
